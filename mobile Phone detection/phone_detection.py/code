@@ -1,0 +1,118 @@
+from ultralytics import YOLO
+import cv2
+import json
+
+# Load YOLOv8 model
+model = YOLO("yolov8n.pt")
+
+# Open webcam
+cap_index = 0
+cap = cv2.VideoCapture(cap_index)
+if not cap.isOpened():
+    # Keep script running but inform the user—camera index may differ.
+    print("[ERROR] Could not open webcam. Check VideoCapture index (currently 0).")
+    cap = None
+
+# If camera is not available, exit gracefully.
+if cap is None:
+    cap.release() if cap is not None else None
+    cv2.destroyAllWindows()
+    raise SystemExit(1)
+
+phone_detected = False
+
+confidence_score = 0.0
+# Count consecutive frames where a phone is detected with sufficient confidence
+consecutive_phone_frames = 0
+
+
+while True:
+
+    ret, frame = cap.read()
+
+    if not ret:
+        break
+
+    # YOLO detection
+    results = model(frame)
+
+    phone_detected = False
+    confidence_score = 0.0
+
+
+    for result in results:
+
+        boxes = result.boxes
+
+        for box in boxes:
+
+            cls = int(box.cls[0])
+            conf = float(box.conf[0])
+
+            class_name = model.names[cls]
+
+            # Detect phone
+            if class_name == "cell phone" and conf > 0.60:
+
+                phone_detected = True
+                confidence_score = conf
+                consecutive_phone_frames += 1
+
+
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+
+                # Draw rectangle
+                cv2.rectangle(
+                    frame,
+                    (x1, y1),
+                    (x2, y2),
+                    (0, 0, 255),
+                    2
+                )
+
+                # Display text
+                cv2.putText(
+                    frame,
+                    f"Phone Detected {conf:.2f}",
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.7,
+                    (0, 0, 255),
+                    2
+                )
+
+    # Suspicious activity (after N consecutive confident detections)
+    if consecutive_phone_frames > 10:
+        cv2.putText(
+            frame,
+            "Suspicious Activity Detected",
+            (50, 50),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1,
+            (0, 0, 255),
+            3
+        )
+
+    # If no confident phone is detected in this frame, reset consecutive counter
+    if not phone_detected:
+        consecutive_phone_frames = 0
+
+    # JSON output
+    output = {
+        "phone_detected": phone_detected,
+        "confidence": round(confidence_score, 2)
+    }
+
+
+    print(json.dumps(output))
+
+    # Show window
+    cv2.imshow("Mobile Phone Detection", frame)
+
+    # Exit key
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Release resources
+cap.release()
+cv2.destroyAllWindows()
